@@ -381,6 +381,29 @@ test('checkout suggestions respect every open/master/double and bull setting', (
   }
 });
 
+test('checkout suggestions only use the darts remaining in the turn', () => {
+  assert.deepEqual(getCheckout(40, 'double', 'split', 1), ['D20']);
+  assert.equal(getCheckout(100, 'double', 'split', 1), null);
+  assert.deepEqual(getCheckout(100, 'double', 'split', 2), ['T20', 'D20']);
+  assert.equal(getCheckout(170, 'double', 'split', 2), null);
+  assert.deepEqual(getCheckout(170, 'double', 'split', 3), ['T20', 'T20', 'BULL']);
+  for (const invalid of [0, -1, 4, 1.5, NaN, Infinity, '2', null]) {
+    assert.equal(getCheckout(40, 'double', 'split', invalid), null);
+  }
+  for (const outRule of ['open', 'double', 'master']) for (const bullMode of ['split', 'full']) {
+    for (let score = 1; score <= 180; score++) {
+      const complete = getCheckout(score, outRule, bullMode);
+      assert.deepEqual(getCheckout(score, outRule, bullMode, 3), complete);
+      for (const maxDarts of [1, 2]) {
+        const route = getCheckout(score, outRule, bullMode, maxDarts);
+        if (complete && complete.length <= maxDarts) assert.deepEqual(route, complete);
+        else assert.equal(route, null);
+        if (route) assert.ok(route.length <= maxDarts);
+      }
+    }
+  }
+});
+
 test('turnEnded distinguishes an intrinsic dart finish from a preview at the round limit', () => {
   const x01 = game('501');
   x01.players[0].score = 40;

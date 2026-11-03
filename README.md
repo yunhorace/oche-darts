@@ -6,13 +6,24 @@ A calm, phone-friendly darts scoreboard for game night. Name your players, choos
 
 - **Up to 8 players** with customizable names; each mode enforces its own player limits.
 - **An electronic-darts game menu:** X01, Cricket variants, Count Up, Gotcha!, Bermuda Triangle, Tic Tac Darts, Shark Tank, and timed practice.
+- **Live 01 scoring:** each entered dart immediately updates the remaining score and checkout suggestion, using only the darts left in the turn.
 - **Dart-by-dart entry** with singles, doubles, trebles, bull, and misses.
 - **Automatic scoring**, turn rotation, bust detection, and checkout suggestions for X01.
-- **Undo, automatic saving, and match history** in the current browser.
+- **Undo, per-dart automatic saving, and match history** in the current browser. An unfinished turn resumes after a refresh or closing the tab.
 - **Responsive design** for phones, tablets, and desktop screens.
 - **Static hosting:** no account, API key, database, or production server required.
 
 Players share one device for scoring. Game data is stored in that browser; opening the site on a different phone does not join or synchronize a match. Clearing browser storage removes saved data. Live rooms would require a shared backend.
+
+## Saved games and removal
+
+The current game, entered darts, player names, and last 30 completed matches are stored under the `oche-v1` localStorage key in the user's browser. Scores and player names are not uploaded to GitHub. Returning to the same website in the same browser resumes the game. Private browsing and browser storage eviction can erase local records; there is no cloud backup.
+
+- **End game** removes the current game after confirmation, keeping completed matches and names. For a finished game, **Close game** returns to setup while keeping its result.
+- **Match history → select a match → Delete match** removes one result after confirmation.
+- **Saved data** in the footer explains storage. **Clear all saved data** removes the game's localStorage entry after confirmation, including names and history, without clearing unrelated browser storage.
+
+Each dart saves immediately. The **Next player** button completes the turn; ending a turn early counts unused darts as misses. A bust restores the turn's starting score immediately. Tapping a filled dart removes it and recalculates the remaining score. A winning dart shows zero immediately; **Finish game** records the result.
 
 ## Run locally
 

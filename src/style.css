@@ -19,3 +19,10 @@
 @media(max-width:740px){.dartboard{max-width:100%;height:auto}.orbit{max-width:115%;aspect-ratio:1;height:auto}.score-list{min-width:0}}
 
 @media(max-width:420px){.game-options .field-label:has(select[data-setting="bullMode"]){flex-basis:100%}}
+
+.live-score{display:flex;align-items:center;gap:15px;background:#edf1e7;border:1px solid #d8dfcf;border-radius:7px;padding:16px;margin-top:18px}
+.live-score>strong{font-family:var(--display);font-size:46px;line-height:1;font-weight:650;letter-spacing:-2px;font-variant-numeric:tabular-nums;color:var(--green)}
+.live-score>span{font-size:12px;line-height:1.8;color:var(--muted)}
+.footer-links{display:flex;align-items:center;gap:20px}
+.danger-text{color:var(--orange-dark)}
+@media(max-width:420px){.footer-links{gap:12px}.match-top{gap:10px}.match-actions .secondary{padding:8px}.live-score{padding:13px;margin-top:14px}.live-score>strong{font-size:40px}}

@@ -7,9 +7,10 @@ const originals = Object.fromEntries(['document', 'window', 'localStorage', 'set
 after(() => { for (const [key, value] of Object.entries(originals)) { if (value === undefined) delete globalThis[key]; else globalThis[key] = value; } });
 let session = 0;
 
-async function launch(saved = null, { storageFails = false } = {}) {
+async function launch(saved = null, { storageFails = false, removeFails = false, otherStorage = {} } = {}) {
   const listeners = {};
   const storage = new Map(saved === null ? [] : [['oche-v1', typeof saved === 'string' ? saved : JSON.stringify(saved)]]);
+  for (const [key, value] of Object.entries(otherStorage)) storage.set(key, value);
   function element() {
     const classes = new Set();
     return { innerHTML: '', textContent: '', open: false, classList: { add: name => classes.add(name), remove: name => classes.delete(name) }, addEventListener() {}, showModal() { this.open = true; }, close() { this.open = false; }, focus() {}, select() {}, getBoundingClientRect() { return { left: 0, top: 0, right: 500, bottom: 500 }; } };
@@ -28,6 +29,7 @@ async function launch(saved = null, { storageFails = false } = {}) {
   globalThis.localStorage = {
     getItem: key => storage.get(key) ?? null,
     setItem(key, value) { if (storageFails) throw new Error('Quota exceeded'); storage.set(key, value); },
+    removeItem(key) { if (removeFails) throw new Error('Storage access denied'); storage.delete(key); },
   };
   globalThis.setTimeout = () => 1;
   globalThis.clearTimeout = () => {};
@@ -37,7 +39,7 @@ async function launch(saved = null, { storageFails = false } = {}) {
     const html = (nodes['#modal'].open ? nodes['#modal'].innerHTML : '') + nodes['#app'].innerHTML;
     const tag = [...html.matchAll(/<button\b([^>]*)>/g)].find(match => match[1].includes(`data-${key}="${value}"`));
     assert.ok(tag, `Missing button data-${key}="${value}"`);
-    const dataset = Object.fromEntries([...tag[1].matchAll(/data-([\w-]+)="([^"]*)"/g)].map(match => [match[1], match[2]]));
+    const dataset = Object.fromEntries([...tag[1].matchAll(/data-([\w-]+)="([^"]*)"/g)].map(match => [match[1].replace(/-([a-z])/g, (_, letter) => letter.toUpperCase()), match[2]]));
     return { dataset, disabled: /\sdisabled(?:\s|$|=)/.test(tag[1]), closest() { return this; } };
   }
   return {
@@ -46,6 +48,7 @@ async function launch(saved = null, { storageFails = false } = {}) {
     modal: () => nodes['#modal'],
     state: () => JSON.parse(storage.get('oche-v1') || 'null'),
     raw: () => storage.get('oche-v1'),
+    storageValue: key => storage.get(key),
     button,
     click(key, value) { listeners.click({ target: button(key, value) }); },
     action(value) { this.click('action', value); },
@@ -189,4 +192,155 @@ test('hydrated names remain escaped and only the last thirty valid matches are k
   assert.equal([...ui.html().matchAll(/data-match=/g)].length, 30);
   assert.ok(!ui.html().includes('data-match="match-4"'));
   assert.ok(ui.html().includes('data-match="match-34"'));
+});
+
+const currentScore = ui => Number(ui.html().match(/class="score-card [^"]*current[^\"]*"[\s\S]*?class="score-number"><strong>(-?\d+)<\/strong>/)?.[1]);
+const liveScoreText = ui => ui.html().match(/class="live-score[^\"]*"[^>]*>([\s\S]*?)<\/div>/)?.[1] || '';
+const savedGame = (game, extra = {}) => ({ names: game.players.map(p => p.name), matches: [], game, ...extra });
+const finishCountUp = name => recordTurn(createGame({ mode: 'countup', players: [name], rounds: 1 }), [{ number: 20, multiplier: 1 }]);
+
+test('01 draft darts update both score displays immediately while keeping the active player until save', async () => {
+  const ui = await launch(); ui.action('start');
+  ui.dart(20); assert.equal(currentScore(ui), 481); assert.match(liveScoreText(ui), /481/);
+  ui.dart(20, 3); assert.equal(currentScore(ui), 421); assert.match(liveScoreText(ui), /421/);
+  assert.equal(ui.state().game.players[0].score, 501, 'draft must not mutate committed score');
+  assert.equal(ui.state().game.activePlayer, 0); assert.equal(ui.state().game.history.length, 0);
+  assert.deepEqual(ui.state().pending, { gameId: ui.state().game.id, playerIndex: 0, darts: [{ number: 20, multiplier: 1 }, { number: 20, multiplier: 3 }] });
+  ui.action('submit');
+  assert.equal(ui.state().game.players[0].score, 421); assert.equal(ui.state().game.activePlayer, 1);
+  assert.equal(ui.state().pending, null);
+});
+
+test('draft darts hydrate after refresh; removing or clearing persists the new preview', async () => {
+  let ui = await launch(); ui.action('start'); ui.dart(20, 3); ui.dart(18, 2);
+  ui = await launch(ui.raw());
+  assert.equal(currentScore(ui), 405); assert.match(liveScoreText(ui), /405/);
+  assert.match(ui.html(), /Remove dart 1: T20/); assert.match(ui.html(), /Remove dart 2: D18/);
+  ui.click('slot', '0');
+  assert.equal(currentScore(ui), 465); assert.deepEqual(ui.state().pending.darts, [{ number: 18, multiplier: 2 }]);
+  ui = await launch(ui.raw()); assert.equal(currentScore(ui), 465);
+  ui.action('clear'); assert.equal(currentScore(ui), 501); assert.equal(ui.state().pending, null);
+  ui = await launch(ui.raw()); assert.equal(currentScore(ui), 501); assert.equal(ui.button('action', 'submit').disabled, true);
+});
+
+test('checkout suggestions use the draft balance and number of darts still available', async () => {
+  const initial = createGame({ mode: '501', players: ['A', 'B'], outRule: 'double' }); initial.players[0].score = 170;
+  const ui = await launch(savedGame(initial));
+  assert.match(ui.html(), /class="checkout-hint"/);
+  ui.dart(20, 3); assert.equal(currentScore(ui), 110); assert.match(ui.html(), /T20 → BULL/);
+  ui.dart(0); assert.equal(currentScore(ui), 110);
+  assert.ok(!ui.html().includes('T20 → BULL'), '110 cannot finish in one dart'); assert.match(ui.html(), /No finish/);
+  ui.click('slot', '1'); assert.match(ui.html(), /T20 → BULL/);
+});
+
+test('a draft bust restores the displayed score immediately and saves accurate history only after confirmation', async () => {
+  const initial = createGame({ mode: '501', players: ['A', 'B'], outRule: 'double' }); initial.players[0].score = 40;
+  let ui = await launch(savedGame(initial)); ui.dart(20); assert.equal(currentScore(ui), 20);
+  ui.dart(25); assert.equal(currentScore(ui), 40); assert.match(liveScoreText(ui), /40/);
+  assert.equal(ui.state().game.history.length, 0); assert.equal(ui.button('number', '20').disabled, true);
+  ui = await launch(ui.raw()); assert.equal(currentScore(ui), 40); assert.match(ui.html(), /Record bust/);
+  ui.action('submit');
+  const g = ui.state().game;
+  assert.equal(g.activePlayer, 1); assert.equal(g.players[0].score, 40); assert.equal(g.history[0].bust, true);
+  assert.equal(g.history[0].scored, 0); assert.deepEqual(g.history[0].darts, [{ number: 20, multiplier: 1 }, { number: 25, multiplier: 1 }]);
+  assert.equal(ui.state().pending, null);
+});
+
+test('stale or malformed saved drafts are ignored safely', async () => {
+  const initial = createGame({ mode: '501', players: ['A', 'B'] });
+  const valid = { gameId: initial.id, playerIndex: 0, darts: [{ number: 20, multiplier: 3 }] };
+  for (const pending of [
+    { ...valid, gameId: 'different-game' }, { ...valid, playerIndex: 1 }, { ...valid, darts: null },
+    { ...valid, darts: [{ number: 25, multiplier: 3 }] }, { ...valid, darts: Array(4).fill({ number: 20, multiplier: 1 }) },
+    { ...valid, darts: [null] }, { ...valid, darts: [{ number: -1, multiplier: 1 }] },
+  ]) {
+    const ui = await launch(savedGame(initial, { pending }));
+    assert.equal(currentScore(ui), 501); assert.equal(ui.button('action', 'submit').disabled, true);
+  }
+});
+
+test('undo discards the next player’s draft and restores the previous turn', async () => {
+  let ui = await launch(); ui.action('start'); ui.dart(20, 3); ui.action('submit'); ui.dart(19, 3);
+  assert.equal(currentScore(ui), 444); ui.action('undo');
+  assert.equal(ui.state().pending, null); assert.equal(ui.state().game.activePlayer, 0);
+  assert.equal(ui.state().game.history.length, 0); assert.equal(currentScore(ui), 501);
+  ui = await launch(ui.raw()); assert.equal(currentScore(ui), 501); assert.equal(ui.button('action', 'submit').disabled, true);
+});
+
+test('replacing a game clears its draft before the new game can be resumed', async () => {
+  let ui = await launch(); ui.action('start'); ui.dart(20, 3); const oldId = ui.state().game.id;
+  ui.action('setup'); ui.select('301'); ui.action('start'); ui.action('confirm-start');
+  assert.notEqual(ui.state().game.id, oldId); assert.equal(ui.state().pending, null);
+  ui = await launch(ui.raw()); assert.equal(currentScore(ui), 301); assert.equal(ui.button('action', 'submit').disabled, true);
+});
+
+test('ending a game needs confirmation and preserves saved matches and player names', async () => {
+  const finished = finishCountUp('Previous winner');
+  const initial = createGame({ mode: '501', players: ['Alex', 'Robin'] });
+  const ui = await launch(savedGame(initial, { matches: [finished] })); ui.dart(20);
+  const before = ui.raw(); ui.action('end-game');
+  assert.equal(ui.modal().open, true); assert.equal(ui.raw(), before);
+  ui.action('close-modal'); assert.equal(ui.raw(), before); assert.equal(currentScore(ui), 481);
+  ui.action('end-game'); ui.action('confirm-end-game');
+  assert.equal(ui.state().game, null); assert.equal(ui.state().pending, null);
+  assert.deepEqual(ui.state().names, ['Alex', 'Robin']); assert.deepEqual(ui.state().matches, [finished]);
+  assert.match(ui.html(), /Pick your game/);
+});
+
+test('deleting one history record requires confirmation and leaves other matches intact', async () => {
+  const first = finishCountUp('Alex'), second = finishCountUp('Robin');
+  const active = createGame({ mode: '501', players: ['Alex', 'Robin'] });
+  const ui = await launch(savedGame(active, { matches: [first, second] }));
+  ui.action('history'); ui.click('match', first.id); ui.click('delete-match', first.id);
+  assert.equal(ui.state().matches.length, 2); ui.action('close-modal'); assert.equal(ui.state().matches.length, 2);
+  ui.click('match', first.id); ui.click('delete-match', first.id); ui.click('confirm-delete-match', first.id);
+  assert.deepEqual(ui.state().matches, [second]); assert.deepEqual(ui.state().game, active);
+});
+
+test('deleting the displayed completed match clears its current-game copy without resurrecting history', async () => {
+  const finished = finishCountUp('Alex');
+  const ui = await launch(savedGame(finished, { matches: [finished] }));
+  ui.action('history'); ui.click('match', finished.id); ui.click('delete-match', finished.id); ui.click('confirm-delete-match', finished.id);
+  assert.equal(ui.state().game, null); assert.equal(ui.state().matches.length, 0); assert.equal(ui.state().pending, null);
+  ui.action('play'); assert.match(ui.html(), /Pick your game/); assert.ok(!ui.html().includes('Undo final turn'));
+});
+
+test('clearing saved data only removes Oche storage after confirmation and resets the app', async () => {
+  const finished = finishCountUp('Alex');
+  const ui = await launch(savedGame(finished, { matches: [finished] }), { otherStorage: { 'unrelated-setting': 'keep me' } });
+  const before = ui.raw(); ui.action('data'); ui.action('clear-data');
+  assert.equal(ui.raw(), before); ui.action('close-modal'); assert.equal(ui.raw(), before);
+  ui.action('data'); ui.action('clear-data'); ui.action('confirm-clear-data');
+  assert.equal(ui.raw(), undefined); assert.equal(ui.storageValue('unrelated-setting'), 'keep me');
+  assert.match(ui.html(), /Pick your game/);
+  ui.action('history'); assert.match(ui.html(), /A clean slate/);
+  ui.action('setup'); ui.action('start'); assert.deepEqual(ui.state().names, ['Player 1', 'Player 2']);
+});
+
+test('failed data removal reports an error and preserves the saved and in-memory match', async () => {
+  const initial = createGame({ mode: '501', players: ['Alex', 'Robin'] });
+  const ui = await launch(savedGame(initial), { removeFails: true });
+  const before = ui.raw(); ui.action('data'); ui.action('clear-data'); ui.action('confirm-clear-data');
+  assert.equal(ui.raw(), before); assert.deepEqual(ui.state().game, initial);
+  assert.match(ui.toast(), /could not|unable|unavailable|denied|failed/i);
+  ui.action('close-modal'); assert.match(ui.html(), /The scoreboard/);
+});
+
+test('ending a game when saving fails reports a session-only change', async () => {
+  const initial = createGame({ mode: '501', players: ['Alex', 'Robin'] });
+  const ui = await launch(savedGame(initial), { storageFails: true });
+  const before = ui.raw(); ui.action('end-game'); ui.action('confirm-end-game');
+  assert.equal(ui.raw(), before); assert.deepEqual(ui.state().game, initial);
+  assert.match(ui.toast(), /session.*only/i); assert.notEqual(ui.toast(), 'Game closed.');
+  assert.match(ui.html(), /Pick your game/);
+});
+
+test('deleting a match when saving fails reports a session-only change', async () => {
+  const finished = finishCountUp('Alex');
+  const ui = await launch(savedGame(finished, { matches: [finished] }), { storageFails: true });
+  const before = ui.raw(); ui.action('history'); ui.click('match', finished.id);
+  ui.click('delete-match', finished.id); ui.click('confirm-delete-match', finished.id);
+  assert.equal(ui.raw(), before); assert.deepEqual(ui.state().matches, [finished]);
+  assert.match(ui.toast(), /session.*only/i); assert.notEqual(ui.toast(), 'Match deleted.');
+  assert.match(ui.html(), /A clean slate/);
 });

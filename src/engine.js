@@ -280,21 +280,24 @@ const scoringDarts = [
   { number: 25, multiplier: 1 },
   ...Array.from({ length: 20 }, (_, i) => ({ number: 20 - i, multiplier: 1 })),
 ];
-/** Returns a shortest legal checkout route, or null. Boolean rules remain supported. */
-export function getCheckout(score, outRule = true, bullMode = 'split') {
+/** Returns a shortest legal route within the darts remaining, or null. Boolean rules remain supported. */
+export function getCheckout(score, outRule = true, bullMode = 'split', maxDarts = 3) {
   const rule = typeof outRule === 'boolean' ? (outRule ? 'double' : 'open') : outRule;
+  if (!Number.isInteger(maxDarts) || maxDarts < 1 || maxDarts > 3) return null;
   if (!['open', 'double', 'master'].includes(rule) || !Number.isInteger(score) || score < 1 || score > (rule === 'double' ? 170 : 180)) return null;
   const finishes = scoringDarts.filter(dart => meetsRule(dart, rule));
   const value = dart => dartValue(dart, bullMode);
   const exactFinish = remaining => finishes.find(dart => value(dart) === remaining);
   const single = exactFinish(score);
   if (single) return [dartLabel(single)];
+  if (maxDarts === 1) return null;
   for (const first of scoringDarts) {
     const remaining = score - value(first);
     if (remaining <= 0 || (rule !== 'open' && remaining === 1)) continue;
     const last = exactFinish(remaining);
     if (last) return [dartLabel(first), dartLabel(last)];
   }
+  if (maxDarts === 2) return null;
   for (const first of scoringDarts) {
     const remaining = score - value(first);
     if (remaining <= 0 || (rule !== 'open' && remaining === 1)) continue;
