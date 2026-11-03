@@ -1,0 +1,15 @@
+{
+  "name": "oche-darts",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A simple, elegant darts scorer for 1–8 players.",
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/serve.mjs",
+    "test": "node --test",
+    "build": "node scripts/build.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
