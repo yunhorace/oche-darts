@@ -17,3 +17,5 @@
 .hero-copy,.hero-art,.scoreboard,.entry-panel{min-width:0}
 .category-tabs{overflow-x:auto}
 @media(max-width:740px){.dartboard{max-width:100%;height:auto}.orbit{max-width:115%;aspect-ratio:1;height:auto}.score-list{min-width:0}}
+
+@media(max-width:420px){.game-options .field-label:has(select[data-setting="bullMode"]){flex-basis:100%}}
